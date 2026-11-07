@@ -85,7 +85,7 @@ The research stopped after approximately ten days because the **central outcome*
 
 This project draws on the upstream [citizenfx/fivem](https://github.com/citizenfx/fivem), community work on [PR #4050](https://github.com/citizenfx/fivem/pull/4050), and an independent series of tests run on the PS5 Ubuntu host. Existing Windows CI notes are archived in [archive/build-workflow.yml](archive/build-workflow.yml); [the build repository](https://github.com/feraskozx1-byte/fivem-pr4050-build) remains separate.
 
-FiveM, GTA V, Wine, Proton and their respective authors retain their rights and licenses. See [source credits](docs/SOURCE_AND_CREDITS.md), [security](SECURITY.md), [contributing](CONTRIBUTING.md), and [changelog](CHANGELOG.md).
+FiveM, GTA V, Wine, Proton and their respective authors retain their rights and licenses. See [source credits](docs/SOURCE_AND_CREDITS.md), [third-party license notices](THIRD_PARTY_NOTICES.md), [publication audit](docs/PUBLICATION_AUDIT.md), [security](SECURITY.md), [contributing](CONTRIBUTING.md), and [changelog](CHANGELOG.md).
 
 ---
 
