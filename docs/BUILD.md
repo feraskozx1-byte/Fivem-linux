@@ -9,6 +9,8 @@ This project is **not** a redistributed FiveM fork. It documents local source ch
 - Working source branch: https://github.com/Amzi-01/fivem (branch `wine-proton-fix`, when available)
 - Existing build repository: `feraskozx1-byte/fivem-pr4050-build` (a separate repository, kept unchanged)
 
+A copy of the original Windows GitHub Actions workflow is preserved at [archive/build-workflow.yml](../archive/build-workflow.yml). The live CI configuration remains in the separate build repository.
+
 ## CoreRT targeted experiment
 
 Recorded locally modified files:
