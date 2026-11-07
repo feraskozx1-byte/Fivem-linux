@@ -1,0 +1,112 @@
+name: Build FiveM PR4050 on Windows
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-five:
+    runs-on: windows-2022
+    timeout-minutes: 330
+    env:
+      PROGRAM: five
+
+    steps:
+      - name: Set up Python 3.11 for legacy node-gyp
+        id: python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Force legacy native tooling to use Python 3.11
+        shell: pwsh
+        run: |
+          $python = "${{ steps.python.outputs.python-path }}"
+          & $python --version
+          "PYTHON=$python" >> $env:GITHUB_ENV
+          "npm_config_python=$python" >> $env:GITHUB_ENV
+          "NODE_GYP_FORCE_PYTHON=$python" >> $env:GITHUB_ENV
+
+      - name: Verify preinstalled Windows SDK 22621 for C++ x64
+        shell: pwsh
+        run: |
+          $root = "${env:ProgramFiles(x86)}\Windows Kits\10"
+          $checks = @(
+            "$root\Include\10.0.22621.0\um\Windows.h",
+            "$root\Lib\10.0.22621.0\um\x64\kernel32.lib",
+            "$root\Lib\10.0.22621.0\ucrt\x64\ucrt.lib"
+          )
+          foreach ($path in $checks) {
+            if (!(Test-Path $path)) { throw "Missing Windows SDK C++ x64 file: $path" }
+          }
+          Write-Output "SDK 10.0.22621.0 headers and x64 libraries are present"
+
+      - name: Check Visual Studio 2022
+        shell: pwsh
+        run: |
+          $msbuild = 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe'
+          if (!(Test-Path $msbuild)) { throw 'Visual Studio 2022 MSBuild was not found' }
+
+      - name: Clone the exact original PR4050 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /c/b/dep
+          git clone -c core.symlinks=true --depth 1 --single-branch \
+            --branch wine-proton-fix \
+            https://github.com/Amzi-01/fivem.git /c/b/five
+          cd /c/b/five
+          EXPECTED=ba07d9d3d5bd8459b69a81c69eb6065d4e11273c
+          ACTUAL="$(git rev-parse HEAD)"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "Error: expected $EXPECTED, got $ACTUAL"
+            exit 1
+          fi
+          git submodule update --init --depth=1 --jobs=4
+
+      - name: Run original FiveM prebuild and generate VS 2022 solution
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /c/b/five
+          pwsh ./fxd.ps1 get-chrome
+          ./prebuild.cmd
+          pwsh ./fxd.ps1 gen -game five
+
+      - name: Fix CoreRT memory crash under Wine
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -c 'from pathlib import Path; p=Path("/c/b/five/code/client/citicore/DllGameComponent.Win32.cpp"); d=p.read_bytes(); old=b"if (osBuildNumber >= 18362 && osBuildNumber < 19628)"; new=b"if (osBuildNumber >= 18362 && osBuildNumber < 19628 && !CfxIsWine())"; assert d.count(old)==1, "Unexpected upstream source"; p.write_bytes(d.replace(old,new,1)); print("CoreRT Wine compatibility fix applied")'
+
+      - name: Compile release with preinstalled Windows SDK 22621
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /c/b/five/code/build/five
+          "/c/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/MSBuild.exe" CitizenMP.sln \
+            -t:build -restore -p:RestorePackagesConfig=true \
+            -p:preferredtoolarchitecture=x64 -p:configuration=release \
+            -p:WindowsTargetPlatformVersion=10.0.22621.0 \
+            -maxcpucount:4 -v:q -fl1 \
+            "-flp1:logfile=errors.log;errorsonly"
+
+      - name: Upload build error logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fivem-pr4050-build-logs
+          path: C:/b/five/code/build/five/errors.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload compiled release files
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fivem-pr4050-release
+          path: C:/b/five/code/bin/five/release/
+          if-no-files-found: warn
+          retention-days: 7
