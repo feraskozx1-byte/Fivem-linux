@@ -33,4 +33,4 @@ The temporary Wine NTDLL API prototype was restricted to an isolated diagnostic 
 
 Recorded end-of-session verification: original Adhesive and installed Proton NTDLL unchanged; code source git status checked; diagnostic `S:` mapping restored; diagnostic prefixes cleaned, and no full runtime patch installed.
 
-See [ARTIFACTS](ARTIFACTS.md) for local source/patch files that can be considered for manual text-only import.
+The original research patches have now been imported into [local-evidence/](../local-evidence/README.md); see [ARTIFACTS](ARTIFACTS.md) for file provenance and exclusions.

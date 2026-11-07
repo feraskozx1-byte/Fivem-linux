@@ -23,4 +23,4 @@
 - `Diagnostics/2026-11-07-TLS-Causality/causality-comparison.json`: controlled before/after conclusions.
 - `Diagnostics/2026-11-07-Export-Bounds/FINDINGS.md`: last index-bounds results.
 
-These are paths on the original test machine, **not files asserted to be present in this archive**.
+The first three paths refer to original runtime logs/JSON that were **not uploaded** by the text-only importer. The final Markdown analysis **is available** in the archived [Export-Bounds findings](../local-evidence/Diagnostics/2026-11-07-Export-Bounds/FINDINGS.md). See the [artifact index](ARTIFACTS.md).

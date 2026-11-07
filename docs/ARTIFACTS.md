@@ -1,9 +1,9 @@
-# Local artifact inventory (not automatically uploaded)
+# Artifact inventory — imported text vs. excluded runtimes
 
 Root on the original PS5 Ubuntu installation:
 `/home/feras/Projects/FiveM-PR4050-Test`
 
-The repository can preserve **only accessible, reviewed content**. This inventory records original paths reported in the Codex session logs. The actual files may be absent from GitHub until imported from the user's own machine.
+**Import completed:** On 2026-11-07, the owner imported **179 text/source evidence files** from the original Ubuntu workspace (commit `58cd24c`). See [the evidence directory](../local-evidence/README.md). This is a selected code/report snapshot, **not** a full copy of the original binary runtime or all log data.
 
 ## Source and runtime
 
@@ -31,7 +31,7 @@ The repository can preserve **only accessible, reviewed content**. This inventor
 | `Diagnostics/2026-11-07-TLS-Causality/` | Controlled TLS test and unsuccessful prototype |
 | `Diagnostics/2026-11-07-Export-Bounds/` | Final resolver-bound tests and findings |
 
-Directories shown are from recorded session references; verify existence before importing. Prefer Markdown, source code and `.patch` files **outside any `private/` subtree**, with manual secret review.
+Imported text/source material is under [local-evidence/Diagnostics/](../local-evidence/Diagnostics/). The original host directories remain separate; some private logs and binaries were deliberately excluded. Individual files may still require human review before any public release.
 
 ## Preserve locally, do not publish by default
 

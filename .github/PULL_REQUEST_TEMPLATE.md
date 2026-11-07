@@ -11,7 +11,7 @@ Describe the documentation change or independently reproducible **public API com
 
 ## Review checklist
 
-- [ ] I read [CONTRIBUTING.md](../CONTRIBUTING.md) and [SECURITY.md](../SECURITY.md).
+- [ ] I read [CONTRIBUTING.md](https://github.com/feraskozx1-byte/Fivem-linux/blob/main/CONTRIBUTING.md) and [SECURITY.md](https://github.com/feraskozx1-byte/Fivem-linux/blob/main/SECURITY.md).
 - [ ] I did not include credentials, login state, account data, proprietary DLLs, copyrighted game assets or raw private memory dumps.
 - [ ] I clearly distinguish observations from hypotheses.
 - [ ] I do not describe partial startup as working protected public-server support.

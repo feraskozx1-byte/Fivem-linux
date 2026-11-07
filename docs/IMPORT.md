@@ -1,8 +1,8 @@
-# Importing text-only evidence from the original PS5 disk
+# Evidence import — completed 2026-11-07
 
-**The GitHub connector cannot read `/home/feras/...` on the PS5.** The initial archive is based on Codex session exports and GitHub build metadata; local patches and diagnostics require an import from Ubuntu itself.
+**Historical import succeeded.** The initial documentation was based on Codex session exports. The PS5 owner then ran the import script locally and pushed **179 text/source files** to GitHub in commit `58cd24c` (18,011 added lines). See [local-evidence/](../local-evidence/README.md). The connected GitHub app still cannot read the PS5 disk directly.
 
-Use [`scripts/import-local-evidence.sh`](../scripts/import-local-evidence.sh) on the PS5 Ubuntu host. It:
+For possible **future additional imports only**, [`scripts/import-local-evidence.sh`](../scripts/import-local-evidence.sh) on the original PS5 Ubuntu host:
 
 1. Checks the original project and a Git clone of this repo;
 2. Copies only `*.md`, `*.patch`, `*.diff`, `*.py`, `*.c`, `*.cpp`, `*.h`, `*.sh` from `Diagnostics/` while rejecting `private/`, symlinks, logs, binary objects and huge files;
@@ -10,7 +10,7 @@ Use [`scripts/import-local-evidence.sh`](../scripts/import-local-evidence.sh) on
 4. Displays staged file names and runs a simple sensitivity scanner;
 5. **Does not upload or push automatically**; the operator reviews the staged changes before publishing.
 
-### From the user's PS5 Ubuntu terminal
+### Historical procedure (already completed)
 
 ```bash
 git clone https://github.com/feraskozx1-byte/Fivem-linux.git "$HOME/Fivem-linux-archive"
@@ -18,9 +18,9 @@ cd "$HOME/Fivem-linux-archive"
 bash scripts/import-local-evidence.sh
 ```
 
-This uses the GitHub authentication already configured on that machine (if any). A private GitHub repository still requires authorization.
+**Do not rerun this blindly:** the script refuses to overwrite an existing `local-evidence/` directory. Re-running requires deliberate new file review, not an automatic re-import. A private GitHub repository requires authorization.
 
-To publish **after reviewing** what the script staged:
+For any **new**, reviewed import in a clean clone, the publishing step would be:
 
 ```bash
 git diff --cached --stat
