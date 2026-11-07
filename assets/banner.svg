@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 350" role="img" aria-label="FiveM on Linux — Wine/Proton research archive, paused">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#101b2c"/>
+      <stop offset="55%" stop-color="#142338"/>
+      <stop offset="100%" stop-color="#07121f"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#2dd4bf"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" stroke="#9fb4cc" stroke-opacity=".08" fill="none"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="350" rx="16" fill="url(#bg)"/>
+  <rect width="1200" height="350" rx="16" fill="url(#grid)"/>
+  <path d="M0 308 C210 230 330 362 520 278 S910 292 1200 190" fill="none" stroke="url(#line)" stroke-opacity=".27" stroke-width="3"/>
+  <path d="M890 -20L1140 225M960 -20L1200 220" stroke="#60a5fa" stroke-opacity=".12" stroke-width="1"/>
+  <rect x="64" y="55" width="165" height="33" rx="16" fill="#f59e0b" fill-opacity=".13" stroke="#fbbf24" stroke-opacity=".6"/>
+  <circle cx="83" cy="71.5" r="5" fill="#fbbf24"/>
+  <text x="98" y="77" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#fcd34d">RESEARCH PAUSED</text>
+  <text x="64" y="158" font-family="Arial, Helvetica, sans-serif" font-size="62" font-weight="750" fill="#f3f7ff">FiveM on Linux</text>
+  <text x="66" y="208" font-family="Arial, Helvetica, sans-serif" font-size="25" fill="#b7c9de">Wine / Proton compatibility research</text>
+  <rect x="64" y="236" width="540" height="2" rx="1" fill="url(#line)"/>
+  <text x="65" y="273" font-family="Arial, Helvetica, sans-serif" font-size="19" fill="#93a9c2">PS5  •  Ubuntu  •  CoreRT  •  NTDLL  •  Adhesive</text>
+  <text x="65" y="314" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#fbbf24">ARCHIVED 07 NOV 2026  /  PUBLIC SERVERS NOT WORKING</text>
+  <g transform="translate(880 82)" fill="none" stroke="#3b82f6" stroke-width="4" stroke-linejoin="round">
+    <rect x="0" y="0" width="230" height="184" rx="19" stroke-opacity=".32"/>
+    <path d="M40 72L77 45L114 72L77 99Z" fill="#1e40af" fill-opacity=".22"/>
+    <path d="M116 117L154 90L191 117L154 144Z" fill="#0d9488" fill-opacity=".22" stroke="#2dd4bf"/>
+    <path d="M114 72L154 90M77 99L116 117" stroke="#60a5fa" stroke-dasharray="7 6"/>
+    <circle cx="77" cy="72" r="7" fill="#60a5fa" stroke="none"/>
+    <circle cx="154" cy="117" r="7" fill="#2dd4bf" stroke="none"/>
+  </g>
+</svg>

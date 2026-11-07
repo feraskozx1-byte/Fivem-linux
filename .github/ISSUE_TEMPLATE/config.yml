@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Read the research status first
+    url: https://github.com/feraskozx1-byte/Fivem-linux/blob/main/docs/FAQ.md
+    about: This archive is paused and does not provide a working public-server build.
+  - name: Existing unresolved Adhesive blocker
+    url: https://github.com/feraskozx1-byte/Fivem-linux/issues/1
+    about: Check the main investigation before filing a duplicate.

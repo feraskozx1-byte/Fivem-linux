@@ -1,0 +1,25 @@
+name: Documentation correction
+description: Report a broken link, inaccurate claim, translation or attribution issue
+title: "[Docs]: "
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Page or file
+      placeholder: docs/FINDINGS.md
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: What needs to change?
+      description: Cite the repository evidence and suggest corrected wording.
+    validations:
+      required: true
+  - type: checkboxes
+    id: review
+    attributes:
+      label: Privacy
+      options:
+        - label: This report contains no personal credentials or proprietary binary attachments.
+          required: true

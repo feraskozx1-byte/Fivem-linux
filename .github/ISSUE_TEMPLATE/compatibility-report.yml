@@ -1,0 +1,39 @@
+name: Compatibility research report
+description: Reproducible, publicly documented Windows/Wine compatibility finding (not a game support request)
+title: "[Research]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is a **paused research archive**. Please report only independent, verifiable compatibility results. Do not upload proprietary security DLLs, game binaries, credentials, authentication tickets or private dumps.
+  - type: textarea
+    id: context
+    attributes:
+      label: Versions and environment
+      description: Specify Wine/Proton versions and a minimal test environment.
+      placeholder: Wine version, OS, public test fixture, relevant module versions...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Minimal reproduction
+      description: Share steps for an independent, non-proprietary fixture.
+    validations:
+      required: true
+  - type: textarea
+    id: observation
+    attributes:
+      label: Observed result and expected result
+      description: Include exact public API behavior, logs with redaction, and what the result does NOT establish.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safeguards
+    attributes:
+      label: Evidence safeguards
+      options:
+        - label: I removed account data, tickets, tokens, proprietary binaries and private dumps.
+          required: true
+        - label: I have not claimed full protected-server support without complete evidence.
+          required: true
