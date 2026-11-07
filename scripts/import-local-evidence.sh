@@ -31,11 +31,6 @@ while IFS= read -r -d '' f; do
   esac
   # Limit each text file to 512 KiB; avoid memory dumps disguised as text.
   (( $(stat -c '%s' -- "$f") <= 524288 )) || continue
-  # Reject NUL-containing binary files.
-  if LC_ALL=C grep -qU $'\x00' -- "$f" 2>/dev/null; then
-    # grep with NUL pattern is not portable; the file/type checks below are authoritative.
-    :
-  fi
   case "$(file --mime-type -b "$f")" in
     text/*|application/x-shellscript|application/x-python-code|application/json) ;;
     *) continue;;
