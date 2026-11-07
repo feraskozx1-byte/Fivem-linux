@@ -2,7 +2,7 @@
 
 **Suggested destination:** Reply to the established [Native Linux Support for FiveM — It's Time](https://forum.cfx.re/t/native-linux-support-for-fivem-it-s-time/5330614) topic under *FiveM Discussion → Platform Suggestions*.
 
-**Before posting:** The GitHub archive [feraskozx1-byte/Fivem-linux](https://github.com/feraskozx1-byte/Fivem-linux) is currently **PRIVATE**. People on the forum cannot access the link until a carefully reviewed public copy is made available. See [publication audit](PUBLICATION_AUDIT.md). Do not upload proprietary DLLs, private crash dumps, game assets, full Wine prefixes, credentials or tickets.
+**Before posting:** At the latest GitHub check, [feraskozx1-byte/Fivem-linux](https://github.com/feraskozx1-byte/Fivem-linux) is **PUBLIC** and the link can be shared. The original full-history repository has publication risks recorded in [publication audit](PUBLICATION_AUDIT.md); review those concerns. Do not upload proprietary DLLs, private crash dumps, game assets, full Wine prefixes, credentials or tickets.
 
 ---
 
@@ -68,7 +68,7 @@ I am **not asking for an anti-cheat bypass, forged tickets, disabling integrity 
 - **Original text/source research evidence:** https://github.com/feraskozx1-byte/Fivem-linux/tree/main/local-evidence
 - **Main unresolved issue:** https://github.com/feraskozx1-byte/Fivem-linux/issues/1
 
-**Note:** These repository links require an appropriately reviewed **public copy** before the forum can open them; the original archive is private at the time this draft was written.
+**Publication note:** The research repository was verified **Public** at the latest check. The published archive includes historical code and experiments; see the repository's third-party attribution and publication audit before distributing copies or attachments.
 
 Thank you for reading. Even if full Linux support is not on the roadmap, a pointer to the correct *public compatibility contract*, official support process, or a reason this cannot be supported would help the community avoid repeating the same investigations.
 
@@ -76,8 +76,8 @@ Thank you for reading. Even if full Linux support is not on the roadmap, a point
 
 ## Checklist before posting
 
-- [ ] Publish a reviewed copy of the documentation and safe public-API fixtures. The current raw-history repository remains Private.
-- [ ] Replace the archive links with the URL of that public copy.
-- [ ] Remove the **Note** under the links if the URL now works for people who are not signed in.
+- [ ] **Repository is already Public** at the latest check. Review [publication audit](PUBLICATION_AUDIT.md) and [third-party notices](../THIRD_PARTY_NOTICES.md), especially the historic code and personal paths.
+- [ ] Open the GitHub links in a logged-out/private browser window to confirm other people can access them.
+- [ ] Do not present the historical patches as a working, supported or anti-cheat-compatible client.
 - [ ] Do not upload proprietary `adhesive.dll`, GTA V files, authentication tickets, third-party binaries, raw dumps or personal account details.
 - [ ] Reply once to the existing Linux-support topic; **do not cross-post** into support/bug reports.
