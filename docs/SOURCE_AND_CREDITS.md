@@ -1,5 +1,7 @@
 # Source links and acknowledgements
 
+Detailed file-specific license provenance is recorded in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). Publication risks are documented in [PUBLICATION_AUDIT.md](PUBLICATION_AUDIT.md).
+
 This independent research built on publicly discussed projects and documented its own local testing.
 
 - Official FiveM project: https://github.com/citizenfx/fivem
