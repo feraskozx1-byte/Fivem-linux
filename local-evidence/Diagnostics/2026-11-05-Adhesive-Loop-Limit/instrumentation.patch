@@ -1,0 +1,112 @@
+--- index-observer.c.before
++++ index-observer.c
+@@ -30,7 +30,7 @@
+ IMP U32 GetFinalPathNameByHandleW(HANDLE,U16*,U32,U32);
+ IMP U64 GetTickCount64(void);
+ IMP BOOL TerminateProcess(HANDLE,U32);
+-static HANDLE output,disk;static SIZE adhesive_base,ntdll_base,break_address;static U32 captured,lookup_count,break_tid,trace_error,child_exit=0xffffffffu;
++static HANDLE output,disk;static SIZE adhesive_base,ntdll_base,break_address,limit_address,return_address;static U32 captured,lookup_count,limit_count,return_count,break_tid,trace_error,child_exit=0xffffffffu;
+ static void put(const char*s){U32 n=0,w;while(s[n])++n;WriteFile(output,s,n,&w,NULL);if(disk)WriteFile(disk,s,n,&w,NULL);}
+ static void hex(U64 v){const char d[]="0123456789abcdef";char b[19];b[0]='0';b[1]='x';for(U32 i=0;i<16;++i)b[i+2]=d[(v>>(60-4*i))&15];b[18]=0;put(b);}
+ static void field(const char*n,U64 v){put(n);hex(v);put("\r\n");}
+@@ -39,18 +39,20 @@
+ #ifndef FIXTURE_MODE
+ static BOOL remote(HANDLE p,SIZE at,void*out,SIZE size){SIZE n=0;return ReadProcessMemory(p,(void*)at,out,size,&n)&&n==size;}
+ #endif
+-static NOINLINE BOOL arm(U32 tid,SIZE address){
++static NOINLINE BOOL arm(U32 tid,SIZE address,SIZE limit,SIZE result){
+  HANDLE t=OpenThread(0x58,0,tid);struct CTX c={0};c.flags=0x100010;
+  if(!t)return 0;BOOL ok=GetThreadContext(t,&c);
+  if(ok&&(c.debug[5]&255)){put("REFUSE_EXISTING_DEBUG_REGISTERS\r\n");ok=0;}
+- if(ok){c.debug[0]=address;c.debug[5]=1;ok=SetThreadContext(t,&c);}
+- CloseHandle(t);if(ok){break_address=address;break_tid=tid;field("HARDWARE_EXEC_BREAKPOINT_ARMED=",address);}return ok;
++ if(ok){c.debug[0]=address;c.debug[1]=limit;c.debug[2]=result;c.debug[5]=0x15;ok=SetThreadContext(t,&c);}
++ CloseHandle(t);if(ok){break_address=address;limit_address=limit;return_address=result;break_tid=tid;field("LOOKUP_BREAKPOINT=",address);field("LIMIT_BREAKPOINT=",limit);field("RETURN_BREAKPOINT=",result);}return ok;
+ }
+ static NOINLINE BOOL lookup(HANDLE process,struct DE*ev){
+  if(ev->tid!=break_tid)return 0;
+  HANDLE t=OpenThread(0x58,0,ev->tid);struct CTX c={0};c.flags=0x100013;
+  if(!t)return 0;BOOL ok=GetThreadContext(t,&c);
+- if(!ok||c.rip!=break_address||!(c.debug[4]&1)){CloseHandle(t);return 0;}
++ U32 which=c.rip==break_address?1:(c.rip==limit_address?2:(c.rip==return_address?4:0));
++ if(!ok||!which||!(c.debug[4]&which)){CloseHandle(t);return 0;}
++ if(which==1){
+  ++lookup_count;put("LOOKUP n=");hex(lookup_count);put(" index=");
+ #ifdef FIXTURE_MODE
+  (void)process;
+@@ -62,10 +64,22 @@
+  }
+ #endif
+  put("\r\n");
++ }else{
++  if(which==2)++limit_count;else ++return_count;
++  put(which==2?"LIMIT value=":"RETURN_LIMIT value=");
++#ifdef FIXTURE_MODE
++  hex((U32)c.rcx);(void)process;
++#else
++  hex((U32)c.r15);put(" hard_limit=");hex(0x2800);put(" below_limit=");hex((U32)c.r15<0x2800);
++  U64 slots[9]={0};if(remote(process,c.rsp,slots,sizeof(slots))){put(" stack_index=");hex(slots[8]);}
++  if(which==2){put(" selected_target_rva=");hex(((U32)c.r15<0x2800?c.rsi:c.rdx)-adhesive_base);}
++#endif
++  put("\r\n");
++ }
+  /* RF resumes the original instruction once, without retriggering this debug
+     breakpoint. Do not alter RIP, general registers or API return values. */
+  c.eflags|=0x10000;c.debug[4]=0;c.flags=0x100011;
+- if(lookup_count>=4096){c.debug[0]=0;c.debug[5]=0;put("INSTRUMENTATION_COUNT_CAP; breakpoint removed\r\n");}
++ if(lookup_count>=4096){c.debug[0]=c.debug[1]=c.debug[2]=0;c.debug[5]=0;put("INSTRUMENTATION_COUNT_CAP; breakpoints removed\r\n");}
+  ok=SetThreadContext(t,&c);CloseHandle(t);if(!ok){trace_error=1;put("DEBUG_RESUME_FAILED\r\n");}return ok;
+ }
+ static void region(HANDLE process,const char*label,SIZE at){struct MBI m={0};SIZE n=VirtualQueryEx(process,(void*)at,&m,sizeof(m));put(label);put(" at=");hex(at);put(" returned=");hex(n);put(" base=");hex((SIZE)m.base);put(" allocation=");hex((SIZE)m.allocation);put(" region_size=");hex(m.region_size);put(" state=");hex(m.state);put(" protect=");hex(m.protect);put(" type=");hex(m.type);put("\r\n");}
+@@ -103,7 +117,7 @@
+  U16 command[]=L"\"Z:\\home\\feras\\Projects\\FiveM-PR4050-Test\\Diagnostics\\2026-11-05-Adhesive-Phase2\\private\\fullhost\\FiveM.exe\"";
+ #endif
+  struct SI startup={0};struct PI pi={0};startup.cb=sizeof(startup);
+- put("INDEX_TRACE_V1; debugger visible; hardware DR0 breakpoint; RF debug resume only; no memory or API-return writes\r\n");
++ put("LOOP_LIMIT_TRACE_V1; debugger visible; hardware DR0-DR2; RF debug resume only; no memory or API-return writes\r\n");
+  BOOL ok=CreateProcessW(app,command,NULL,NULL,0,2,NULL,NULL,&startup,&pi);field("CreateProcess=",ok);if(!ok){field("error=",GetLastError());ExitProcess(2);}
+  field("child_pid=",pi.pid);field("child_tid=",pi.tid);DebugSetProcessKillOnExit(1);
+  U64 deadline=GetTickCount64()+40000;U32 initial_breakpoint_handled=0;U64 captured_at=0;
+@@ -113,12 +127,12 @@
+   if(ev.code==6){
+    if(ev.u.dll.file){U16 path[1024];U32 n=GetFinalPathNameByHandleW(ev.u.dll.file,path,1024,0);if(n&&n<1024&&suffix(path,n,L"adhesive.dll")){adhesive_base=(SIZE)ev.u.dll.base;field("adhesive_base=",adhesive_base);put("adhesive_path=");wide(path,n);put("\r\n");
+ #ifndef FIXTURE_MODE
+-    if(!arm(ev.tid,adhesive_base+0xd9fdd5)){trace_error=1;put("ARM_FAILED\r\n");}
++    if(!arm(ev.tid,adhesive_base+0xd9fdd5,adhesive_base+0xda3795,adhesive_base+0xda5123)){trace_error=1;put("ARM_FAILED\r\n");}
+ #endif
+    }if(n&&n<1024&&suffix(path,n,L"ntdll.dll")){ntdll_base=(SIZE)ev.u.dll.base;field("ntdll_base=",ntdll_base);}CloseHandle(ev.u.dll.file);}
+   }else if(ev.code==3){if(ev.u.process.file)CloseHandle(ev.u.process.file);
+ #ifdef FIXTURE_MODE
+-    if(!arm(ev.tid,(SIZE)ev.u.process.base+FIXTURE_RVA)){trace_error=1;put("ARM_FAILED\r\n");}
++    if(!arm(ev.tid,(SIZE)ev.u.process.base+FIXTURE_RVA,(SIZE)ev.u.process.base+FIXTURE_LIMIT_RVA,(SIZE)ev.u.process.base+FIXTURE_RETURN_RVA)){trace_error=1;put("ARM_FAILED\r\n");}
+ #endif
+   }
+   else if(ev.code==1){
+@@ -133,9 +147,9 @@
+   ContinueDebugEvent(ev.pid,ev.tid,disposition);
+   if(captured_at&&GetTickCount64()-captured_at>1000)break;
+  }
+- TerminateProcess(pi.process,0);CloseHandle(pi.thread);CloseHandle(pi.process);field("LOOKUPS_TOTAL=",lookup_count);field("TRACE_ERROR=",trace_error);
++ TerminateProcess(pi.process,0);CloseHandle(pi.thread);CloseHandle(pi.process);field("LOOKUPS_TOTAL=",lookup_count);field("LIMITS_TOTAL=",limit_count);field("RETURNS_TOTAL=",return_count);field("TRACE_ERROR=",trace_error);
+ #ifdef FIXTURE_MODE
+- BOOL passed=lookup_count==5&&!trace_error&&child_exit==0;put(passed?"RESULT=FIXTURE_TRACE\r\n":"RESULT=FIXTURE_FAILED\r\n");FlushFileBuffers(disk);CloseHandle(disk);ExitProcess(passed?0:10);
++ BOOL passed=lookup_count==5&&limit_count==5&&return_count==1&&!trace_error&&child_exit==0;put(passed?"RESULT=FIXTURE_TRACE\r\n":"RESULT=FIXTURE_FAILED\r\n");FlushFileBuffers(disk);CloseHandle(disk);ExitProcess(passed?0:10);
+ #else
+  put(captured?"RESULT=SNAPSHOT\r\n":"RESULT=NO_MATCHING_FAULT\r\n");FlushFileBuffers(disk);CloseHandle(disk);ExitProcess(captured&&!trace_error?0:10);
+ #endif
+--- build-trace.sh.before
++++ build-trace.sh
+@@ -10,8 +10,11 @@
+ from pathlib import Path
+ import re,subprocess,sys
+ p=Path(sys.argv[1]);s=subprocess.check_output(['llvm-readobj','--coff-exports',str(p/'index-fixture.exe')],text=True)
+-rva=re.search(r'Name: IndexBoundary\s+RVA: (0x[0-9a-fA-F]+)',s)[1]
+-(p/'fixture-rva.h').write_text('#define FIXTURE_RVA '+rva+'\n')
++definitions=[]
++for name,macro in [('IndexBoundary','FIXTURE_RVA'),('LimitBoundary','FIXTURE_LIMIT_RVA'),('ReturnBoundary','FIXTURE_RETURN_RVA')]:
++ rva=re.search(r'Name: '+name+r'\s+RVA: (0x[0-9a-fA-F]+)',s)[1]
++ definitions.append('#define '+macro+' '+rva+'\n')
++(p/'fixture-rva.h').write_text(''.join(definitions))
+ PY
+ for trace_mode in host fixture; do
+   trace_flags=()

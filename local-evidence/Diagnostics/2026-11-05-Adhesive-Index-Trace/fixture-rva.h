@@ -1,0 +1,1 @@
+#define FIXTURE_RVA 0x1000

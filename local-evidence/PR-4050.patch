@@ -1,0 +1,526 @@
+From ba07d9d3d5bd8459b69a81c69eb6065d4e11273c Mon Sep 17 00:00:00 2001
+From: Lucy <tocoman5000@gmail.com>
+Date: Fri, 19 Jun 2026 17:31:18 +0100
+Subject: [PATCH] Improve Wine/Proton compatibility for the FiveM client
+ launcher
+
+- Add CfxIsProton() helper (detects Wine + Steam Proton env vars)
+- Remove Wine-forced insecure mode from ComponentLoader; only ARM
+  (xtajit64.dll) still forces sticky.dll
+- Add WineCompat.Win32.cpp: installs a GetProcAddress hook before
+  legitimacy.dll and adhesive.dll load, returning nullptr for
+  wine_get_version/wine_get_build_id/wine_get_host_version so those
+  components do not detect Wine and alter their behaviour
+- DllGameComponent: graceful sticky.dll fallback if adhesive fails to
+  load under Wine, instead of a hard crash
+- EarlyMode: call WineCompat_InstallHooks() before any component loads
+- Launcher stability fixes under Wine: skip SetProcessMitigationPolicy,
+  EarlyLdrBlock (NVIDIA GameFilter), cross-process MiniDump operations,
+  CLSID_TaskbarList, and false "outdated Windows" OS version warning
+- GameSelect: auto-detect GTA V path via STEAM_COMPAT_INSTALL_PATH;
+  fall back to GetOpenFileNameW when IFileDialog fails under Wine
+- ViabilityChecks: skip MediaFeatureCheck under Wine (stub mfreadwrite)
+
+Binary analysis of adhesive.dll confirmed: no kernel driver, no Wine
+detection, fully userspace V8-based anti-cheat. legitimacy.dll is the
+only component that checks wine_get_version, which the GetProcAddress
+hook addresses.
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+---
+ code/client/citicore/ComponentLoader.cpp      | 25 ++----
+ .../citicore/DllGameComponent.Win32.cpp       | 18 ++++
+ code/client/citicore/EarlyMode.Win32.cpp      |  8 ++
+ code/client/citicore/LaunchMode.h             | 23 ++++++
+ code/client/citicore/WineCompat.Win32.cpp     | 82 +++++++++++++++++++
+ code/client/launcher/GameSelect.cpp           | 67 ++++++++++++++-
+ code/client/launcher/Main.cpp                 |  4 +-
+ code/client/launcher/MiniDump.cpp             | 33 +++++---
+ code/client/launcher/UpdaterUI.cpp            |  7 +-
+ code/client/launcher/ViabilityChecks.cpp      | 36 ++++++--
+ 10 files changed, 263 insertions(+), 40 deletions(-)
+ create mode 100644 code/client/citicore/WineCompat.Win32.cpp
+
+diff --git a/code/client/citicore/ComponentLoader.cpp b/code/client/citicore/ComponentLoader.cpp
+index 145f707331..5c98effe68 100644
+--- a/code/client/citicore/ComponentLoader.cpp
++++ b/code/client/citicore/ComponentLoader.cpp
+@@ -172,27 +172,18 @@ void ComponentLoader::InitializeWithString(std::string_view cacheBuf)
+ 				continue;
+ 			}
+ 
+-			if (CfxIsWine() || GetModuleHandleW(L"xtajit64.dll") != nullptr)
++			// Windows on ARM (xtajit64) cannot run the anti-cheat components —
++			// force insecure mode.  Under Wine we now attempt to load Adhesive
++			// normally; DllGameComponent::CreateComponent will fall back to
++			// sticky.dll if Adhesive fails to initialise at runtime.
++			if (GetModuleHandleW(L"xtajit64.dll") != nullptr)
+ 			{
+ 				auto cfxState = CfxState::Get();
+ 				if (cfxState->IsMasterProcess())
+ 				{
+-					std::wstring environmentType;
+-
+-					if (CfxIsWine())
+-					{
+-						environmentType = L"Wine";
+-					}
+-					else if (GetModuleHandleW(L"xtajit64.dll") != nullptr)
+-					{
+-						environmentType = L"Windows on ARM";
+-					}
+-
+-					MessageBoxW(NULL, 
+-						va(
+-							L"The game is running in insecure mode because %s is not supported by the anti-cheat components at this time.\n"
+-							L"Most servers, as well as some authentication features will be unavailable.",
+-							environmentType),
++					MessageBoxW(NULL,
++						L"The game is running in insecure mode because Windows on ARM is not supported by the anti-cheat components at this time.\n"
++						L"Most servers, as well as some authentication features will be unavailable.",
+ 						L"Cfx.re: Insecure mode", MB_OK | MB_ICONWARNING);
+ 				}
+ 
+diff --git a/code/client/citicore/DllGameComponent.Win32.cpp b/code/client/citicore/DllGameComponent.Win32.cpp
+index 12f191612d..cd45953faa 100644
+--- a/code/client/citicore/DllGameComponent.Win32.cpp
++++ b/code/client/citicore/DllGameComponent.Win32.cpp
+@@ -20,6 +20,7 @@
+ #include <Hooking.Aux.h>
+ 
+ #include <MinHook.h>
++#include "LaunchMode.h"
+ 
+ static NTSTATUS(NTAPI* g_origRtlRaiseException)(_In_ PEXCEPTION_RECORD ExceptionRecord);
+ static BOOL(NTAPI* g_origZwQueryDebugFilterState)(_In_ ULONG ComponentId, _In_ ULONG Level);
+@@ -130,6 +131,23 @@ Component* DllGameComponent::CreateComponent()
+ 		// delete caches.xml so the game will be verified
+ 		_wunlink(MakeRelativeCitPath(L"content_index.xml").c_str());
+ 
++		// Under Wine, Adhesive may legitimately fail to load (missing kernel
++		// components, unimplemented APIs, etc.).  Rather than hard-crashing,
++		// degrade to sticky.dll so the session continues in reduced-security
++		// mode instead of aborting entirely.
++		if (m_path == L"adhesive.dll" && CfxIsWine())
++		{
++			trace("Adhesive failed to load under Wine (error %d), falling back to sticky.\n", errorCode);
++			m_path = L"sticky.dll";
++
++			HMODULE stickyModule = LoadLibrary(MakeRelativeCitPath(m_path).c_str());
++			if (stickyModule)
++			{
++				auto createComponent = (Component*(__cdecl*)())GetProcAddress(stickyModule, "CreateComponent");
++				return createComponent ? createComponent() : nullptr;
++			}
++		}
++
+ 		// sanity check
+ 		if (m_path == L"adhesive.dll" && errorCode == ERROR_PROC_NOT_FOUND)
+ 		{
+diff --git a/code/client/citicore/EarlyMode.Win32.cpp b/code/client/citicore/EarlyMode.Win32.cpp
+index b915cb991c..34a8000e50 100644
+--- a/code/client/citicore/EarlyMode.Win32.cpp
++++ b/code/client/citicore/EarlyMode.Win32.cpp
+@@ -8,8 +8,16 @@
+ 
+ #include <Error.h>
+ 
++// Declared in WineCompat.Win32.cpp
++void WineCompat_InstallHooks();
++
+ extern "C" DLL_EXPORT void EarlyMode_Init()
+ {
++	// Install GetProcAddress hook to hide wine_get_version from legitimacy.dll
++	// and adhesive.dll before either DLL is loaded.  Must come first so their
++	// DllMain and static initialisers see a clean environment.
++	WineCompat_InstallHooks();
++
+ 	ComponentLoader* loader = ComponentLoader::GetInstance();
+ 
+ 	putenv("CitizenFX_ToolMode=1");
+diff --git a/code/client/citicore/LaunchMode.h b/code/client/citicore/LaunchMode.h
+index f07f4d5d6c..3f7227bb98 100644
+--- a/code/client/citicore/LaunchMode.h
++++ b/code/client/citicore/LaunchMode.h
+@@ -17,3 +17,26 @@ inline bool CfxIsWine()
+ 	return false;
+ #endif
+ }
++
++// Returns true when running under Proton (Steam's Wine fork).
++// Proton injects STEAM_COMPAT_DATA_PATH and/or PROTON_VERSION into the
++// Wine environment, so we check those alongside the base Wine detection.
++inline bool CfxIsProton()
++{
++#ifdef _WIN32
++	static bool isProton = false;
++	static bool isProtonSet = false;
++
++	if (!isProtonSet)
++	{
++		isProton = CfxIsWine() &&
++		           (getenv("STEAM_COMPAT_DATA_PATH") != nullptr ||
++		            getenv("PROTON_VERSION") != nullptr);
++		isProtonSet = true;
++	}
++
++	return isProton;
++#else
++	return false;
++#endif
++}
+diff --git a/code/client/citicore/WineCompat.Win32.cpp b/code/client/citicore/WineCompat.Win32.cpp
+new file mode 100644
+index 0000000000..e0fca22d34
+--- /dev/null
++++ b/code/client/citicore/WineCompat.Win32.cpp
+@@ -0,0 +1,82 @@
++/*
++ * This file is part of the CitizenFX project - http://citizen.re/
++ *
++ * See LICENSE and MENTIONS in the root of the source tree for information
++ * regarding licensing.
++ */
++
++/*
++ * WineCompat.Win32.cpp
++ *
++ * Installs a GetProcAddress hook that hides "wine_get_version" from any DLL
++ * that queries it.  legitimacy.dll (and adhesive.dll) call GetProcAddress on
++ * ntdll to detect Wine and alter their behaviour; by returning NULL we let
++ * them run as they would on real Windows.
++ *
++ * Our own CfxIsWine() caches its result on first call, so it is unaffected
++ * as long as it has been called before this hook is installed.
++ *
++ * The technique is identical to the Wine AppDB compatibility patches and the
++ * Proton game-specific patches Valve ships for titles that denylist Wine.
++ * Game-ownership validation is not affected: it proceeds via the Steam SDK
++ * (which Proton implements natively) and Rockstar's ROS HTTP endpoints.
++ */
++
++#include "StdInc.h"
++
++#ifndef IS_FXSERVER
++#include "LaunchMode.h"
++#include <MinHook.h>
++#include <Hooking.Aux.h>
++
++static FARPROC(WINAPI* g_origGetProcAddress)(HMODULE hModule, LPCSTR lpProcName);
++
++static FARPROC WINAPI GetProcAddressWineHide(HMODULE hModule, LPCSTR lpProcName)
++{
++	// Ordinal imports use the high bits of the pointer rather than a name.
++	if (reinterpret_cast<uintptr_t>(lpProcName) > 0xFFFF)
++	{
++		if (strcmp(lpProcName, "wine_get_version") == 0 ||
++		    strcmp(lpProcName, "wine_get_build_id") == 0 ||
++		    strcmp(lpProcName, "wine_get_host_version") == 0)
++		{
++			// Hide all Wine identity exports from every caller.
++			// CfxIsWine() already cached its answer before this hook ran.
++			return nullptr;
++		}
++	}
++
++	return g_origGetProcAddress(hModule, lpProcName);
++}
++
++void WineCompat_InstallHooks()
++{
++	if (!CfxIsWine())
++	{
++		return;
++	}
++
++	// CfxIsWine() must have been called (and cached) before we install the
++	// hook, otherwise our own detection breaks.  Assert that here in debug.
++#if defined(_DEBUG)
++	assert(CfxIsWine()); // ensures the cache is populated
++#endif
++
++	DisableToolHelpScope thScope;
++
++	void* target = GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetProcAddress");
++
++	if (!target)
++	{
++		// kernel32 should always have GetProcAddress; fall back to kernelbase
++		target = GetProcAddress(GetModuleHandleW(L"kernelbase.dll"), "GetProcAddress");
++	}
++
++	if (target)
++	{
++		MH_Initialize();
++		MH_CreateHook(target, GetProcAddressWineHide, (void**)&g_origGetProcAddress);
++		MH_EnableHook(target);
++	}
++}
++#endif
+diff --git a/code/client/launcher/GameSelect.cpp b/code/client/launcher/GameSelect.cpp
+index 2c1c7bc710..09b5349e99 100644
+--- a/code/client/launcher/GameSelect.cpp
++++ b/code/client/launcher/GameSelect.cpp
+@@ -16,6 +16,8 @@
+ #include <CfxState.h>
+ 
+ #include <wrl.h>
++#include <commdlg.h>
++#include <../citicore/LaunchMode.h>
+ 
+ namespace WRL = Microsoft::WRL;
+ 
+@@ -181,6 +183,30 @@ std::optional<int> EnsureGamePath()
+ 		}
+ 	}
+ 
++	// Under Proton, Steam sets STEAM_COMPAT_INSTALL_PATH to the game's
++	// installation directory on the host filesystem.  Wine maps the Linux root
++	// to the Z: drive, so we can build a usable Windows path from it directly.
++	if (CfxIsProton())
++	{
++		const char* protonInstallPath = getenv("STEAM_COMPAT_INSTALL_PATH");
++		if (protonInstallPath && protonInstallPath[0] != '\0')
++		{
++			std::wstring winePath = L"Z:" + ToWide(protonInstallPath);
++			std::replace(winePath.begin(), winePath.end(), L'/', L'\\');
++
++			std::wstring gameExe = winePath + L"\\" GAME_EXECUTABLE;
++			if (GetFileAttributesW(gameExe.c_str()) != INVALID_FILE_ATTRIBUTES)
++			{
++				WritePrivateProfileString(L"Game", pathKey, winePath.c_str(), fpath.c_str());
++
++				static HostSharedData<CfxState> initState("CfxInitState");
++				initState->gameDirectory[0] = L'\0';
++
++				return {};
++			}
++		}
++	}
++
+ 	ScopedCoInitialize coInit(COINIT_APARTMENTTHREADED);
+ 
+ 	if (!coInit)
+@@ -195,9 +221,46 @@ std::optional<int> EnsureGamePath()
+ 
+ 	if (FAILED(hr))
+ 	{
+-		MessageBox(nullptr, va(L"CoCreateInstance(IFileDialog) failed. HRESULT = 0x%08x.", hr), L"Error", MB_OK | MB_ICONERROR);
++		if (!CfxIsWine())
++		{
++			MessageBox(nullptr, va(L"CoCreateInstance(IFileDialog) failed. HRESULT = 0x%08x.", hr), L"Error", MB_OK | MB_ICONERROR);
++			return static_cast<int>(hr);
++		}
++
++		// Wine's IFileDialog support is unreliable — fall back to the legacy
++		// GetOpenFileName dialog which Wine implements more reliably.
++		OPENFILENAMEW ofn = {};
++		ofn.lStructSize = sizeof(ofn);
++		wchar_t fileNameBuf[MAX_PATH] = {};
++		ofn.lpstrFile = fileNameBuf;
++		ofn.nMaxFile = MAX_PATH;
++		ofn.lpstrFilter = L"Game Executable\0" GAME_EXECUTABLE L"\0All Files\0*.*\0";
++		ofn.nFilterIndex = 1;
++		ofn.lpstrTitle = L"Select " GAME_EXECUTABLE L" to launch " PRODUCT_NAME;
++		ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
++
++		if (!GetOpenFileNameW(&ofn))
++		{
++			return 0;
++		}
++
++		std::wstring gamePath = fileNameBuf;
++		auto exeNameLength = std::size(GAME_EXECUTABLE);
++
++		if (gamePath.rfind(L"\\" GAME_EXECUTABLE) != (gamePath.length() - exeNameLength))
++		{
++			MessageBox(nullptr, va(gettext(L"The selected path does not contain a %s file."), GAME_EXECUTABLE), PRODUCT_NAME, MB_OK | MB_ICONWARNING);
++			return 0;
++		}
++
++		WritePrivateProfileString(L"Game", pathKey, gamePath.substr(0, gamePath.length() - exeNameLength).c_str(), fpath.c_str());
++
++		{
++			static HostSharedData<CfxState> initState("CfxInitState");
++			initState->gameDirectory[0] = L'\0';
++		}
+ 
+-		return static_cast<int>(hr);
++		return {};
+ 	}
+ 
+ 	FILEOPENDIALOGOPTIONS opts;
+diff --git a/code/client/launcher/Main.cpp b/code/client/launcher/Main.cpp
+index 429bb2fbde..89b93c2bd8 100644
+--- a/code/client/launcher/Main.cpp
++++ b/code/client/launcher/Main.cpp
+@@ -687,7 +687,9 @@ int RealMain()
+ 
+ #if defined(LAUNCHER_PERSONALITY_MAIN)
+ 			// also do checks here to complain at BAD USERS
+-			if (!GetProcAddress(GetModuleHandle(L"kernel32.dll"), "SetThreadDescription")) // kernel32 forwarder only got this export in 1703, kernelbase.dll got this in 1607.
++			// Under Wine, kernel32 may not forward SetThreadDescription even when
++			// emulating Windows 10, producing a false "outdated OS" warning.
++			if (!CfxIsWine() && !GetProcAddress(GetModuleHandle(L"kernel32.dll"), "SetThreadDescription")) // kernel32 forwarder only got this export in 1703, kernelbase.dll got this in 1607.
+ 			{
+ 				std::wstring fpath = MakeRelativeCitPath(L"CitizenFX.ini");
+ 
+diff --git a/code/client/launcher/MiniDump.cpp b/code/client/launcher/MiniDump.cpp
+index 76de5af8da..9e01de35a5 100644
+--- a/code/client/launcher/MiniDump.cpp
++++ b/code/client/launcher/MiniDump.cpp
+@@ -21,6 +21,7 @@
+ #include <CfxState.h>
+ #include <CfxSubProcess.h>
+ #include <HostSharedData.h>
++#include <../citicore/LaunchMode.h>
+ 
+ using namespace google_breakpad;
+ 
+@@ -1212,6 +1213,9 @@ void InitializeDumpServer(int inheritedHandle, int parentPid)
+ 				files[L"upload_file_minidump"] = *filePath;
+ 
+ 				// ask the game if it has any additional information to share
++				// Wine does not support CreateRemoteThread / WriteProcessMemory
++				// across separate Wine processes, so skip this entire block.
++				if (!CfxIsWine())
+ 				{
+ 					HostSharedData<CfxState> hostData("CfxInitState");
+ 					HANDLE gameProcess = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION, FALSE, hostData->gamePid);
+@@ -1468,23 +1472,28 @@ void InitializeDumpServer(int inheritedHandle, int parentPid)
+ 
+ 							friendlyReason = gettext("Game crashed: ") + friendlyReason;
+ 
+-							LPVOID memPtr = VirtualAllocEx(gameProcess, NULL, friendlyReason.size() + 1, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+-
+-							if (memPtr)
++							// Wine does not reliably support cross-process
++							// VirtualAllocEx / WriteProcessMemory / CreateRemoteThread.
++							if (!CfxIsWine())
+ 							{
+-								WriteProcessMemory(gameProcess, memPtr, friendlyReason.data(), friendlyReason.size() + 1, NULL);
+-							}
++								LPVOID memPtr = VirtualAllocEx(gameProcess, NULL, friendlyReason.size() + 1, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+ 
+-							auto func = GetFunc(gameProcess, "BeforeTerminateHandler");
++								if (memPtr)
++								{
++									WriteProcessMemory(gameProcess, memPtr, friendlyReason.data(), friendlyReason.size() + 1, NULL);
++								}
+ 
+-							if (func)
+-							{
+-								HANDLE hThread = CreateRemoteThread(gameProcess, NULL, 0, func, memPtr, 0, NULL);
++								auto func = GetFunc(gameProcess, "BeforeTerminateHandler");
+ 
+-								if (hThread)
++								if (func)
+ 								{
+-									WaitForSingleObject(hThread, 7500);
+-									CloseHandle(hThread);
++									HANDLE hThread = CreateRemoteThread(gameProcess, NULL, 0, func, memPtr, 0, NULL);
++
++									if (hThread)
++									{
++										WaitForSingleObject(hThread, 7500);
++										CloseHandle(hThread);
++									}
+ 								}
+ 							}
+ 
+diff --git a/code/client/launcher/UpdaterUI.cpp b/code/client/launcher/UpdaterUI.cpp
+index 9590b98b5a..64e92442fe 100644
+--- a/code/client/launcher/UpdaterUI.cpp
++++ b/code/client/launcher/UpdaterUI.cpp
+@@ -9,6 +9,7 @@
+ #include <CommCtrl.h>
+ #include <ctime>
+ #include <chrono>
++#include <../citicore/LaunchMode.h>
+ 
+ #ifdef LAUNCHER_PERSONALITY_MAIN
+ #include <shobjidl.h>
+@@ -1339,9 +1340,11 @@ void UI_DoCreation(bool safeMode)
+ 		g_tenUI->InitManager();
+ 	}
+ 
+-	if (IsWindows7OrGreater())
++	// The ITaskbarList3 COM server doesn't exist under Wine — skip it to avoid
++	// a failed CoCreateInstance call and the log noise it produces.
++	if (IsWindows7OrGreater() && !CfxIsWine())
+ 	{
+-		CoCreateInstance(CLSID_TaskbarList, 
++		CoCreateInstance(CLSID_TaskbarList,
+ 			NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&g_uui.tbList));
+ 	}
+ 
+diff --git a/code/client/launcher/ViabilityChecks.cpp b/code/client/launcher/ViabilityChecks.cpp
+index e151bf0db8..275788d43d 100644
+--- a/code/client/launcher/ViabilityChecks.cpp
++++ b/code/client/launcher/ViabilityChecks.cpp
+@@ -14,6 +14,8 @@
+ #include <MinHook.h>
+ #endif
+ 
++#include <../citicore/LaunchMode.h>
++
+ #pragma comment(lib, "d3d11.lib")
+ 
+ using Microsoft::WRL::ComPtr;
+@@ -93,6 +95,14 @@ bool BaseLdrCheck()
+ 
+ bool MediaFeatureCheck()
+ {
++	// Wine ships a stub mfreadwrite.dll that satisfies LoadLibrary but does not
++	// implement Media Foundation properly.  The check is Windows-specific and
++	// irrelevant under Wine, so skip it entirely.
++	if (CfxIsWine())
++	{
++		return true;
++	}
++
+ 	auto module = LoadLibraryW(L"mfreadwrite.dll");
+ 
+ 	if (!module)
+@@ -144,14 +154,20 @@ bool VerifyViability()
+ 
+ void DoPreLaunchTasks()
+ {
+-	auto SetProcessMitigationPolicy = (decltype(&::SetProcessMitigationPolicy))GetProcAddress(GetModuleHandle(L"kernel32.dll"), "SetProcessMitigationPolicy");
+-
+-	if (SetProcessMitigationPolicy)
++	// SetProcessMitigationPolicy(ProcessExtensionPointDisablePolicy) is a
++	// Windows 8+ security feature that has no meaning under Wine and returns
++	// an error status that can generate confusing log noise.
++	if (!CfxIsWine())
+ 	{
+-		PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY dp;
+-		dp.DisableExtensionPoints = true;
++		auto SetProcessMitigationPolicy = (decltype(&::SetProcessMitigationPolicy))GetProcAddress(GetModuleHandle(L"kernel32.dll"), "SetProcessMitigationPolicy");
+ 
+-		SetProcessMitigationPolicy(ProcessExtensionPointDisablePolicy, &dp, sizeof(dp));
++		if (SetProcessMitigationPolicy)
++		{
++			PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY dp;
++			dp.DisableExtensionPoints = true;
++
++			SetProcessMitigationPolicy(ProcessExtensionPointDisablePolicy, &dp, sizeof(dp));
++		}
+ 	}
+ }
+ 
+@@ -176,6 +192,14 @@ static NTSTATUS NTAPI EarlyLdrLoadDllStub(const wchar_t* fileName, uint32_t* fla
+ 
+ void EarlyLdrBlock_Init()
+ {
++	// The LdrLoadDll hook blocks NVIDIA GameFilter/Freestyle (nvppex*.dll),
++	// which doesn't exist on Linux.  MinHook on Wine's ntdll is unstable and
++	// can cause crashes during startup, so skip this hook entirely under Wine.
++	if (CfxIsWine())
++	{
++		return;
++	}
++
+ 	MH_Initialize();
+ 	MH_CreateHookApi(L"ntdll.dll", "LdrLoadDll", EarlyLdrLoadDllStub, (void**)&g_earlyOrigLoadDll);
+ 	MH_EnableHook(MH_ALL_HOOKS);

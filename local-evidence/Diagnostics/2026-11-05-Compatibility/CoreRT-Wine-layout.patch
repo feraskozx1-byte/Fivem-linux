@@ -1,0 +1,13 @@
+diff --git a/code/client/citicore/DllGameComponent.Win32.cpp b/code/client/citicore/DllGameComponent.Win32.cpp
+index cd45953..eab9501 100644
+--- a/code/client/citicore/DllGameComponent.Win32.cpp
++++ b/code/client/citicore/DllGameComponent.Win32.cpp
+@@ -38,7 +38,7 @@ struct HardErrorScope
+ 
+ 		// 19H1, Vb and Mn seem to adhere to this memory layout.
+ 		// Not sure about Fe and above, so taking out 20000.
+-		if (osBuildNumber >= 18362 && osBuildNumber < 19628)
++		if (osBuildNumber >= 18362 && osBuildNumber < 19628 && !CfxIsWine())
+ 		{
+ 			auto fltUsed = (char*)GetProcAddress(GetModuleHandle(L"ntdll.dll"), "_fltused");
+ 			m_oldLdrFlags = *(int*)(fltUsed - 16);

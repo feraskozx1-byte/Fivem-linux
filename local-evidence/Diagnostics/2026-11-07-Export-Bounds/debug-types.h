@@ -1,0 +1,12 @@
+struct ER {U32 code,flags;void *nested,*address;U32 count;SIZE parameters[15];};
+struct EI {struct ER record;U32 first;};
+struct CPI {HANDLE file,process,thread;void *base;U32 debug_offset,debug_size;void *tls,*start,*image;U16 unicode;};
+struct LDI {HANDLE file;void *base;U32 debug_offset,debug_size;void *image;U16 unicode;};
+struct DE {U32 code,pid,tid;union {struct EI exception;struct CPI process;struct LDI dll;U8 bytes[160];} u;};
+struct SI {U32 cb;U16 *reserved,*desktop,*title;U32 x,y,xsize,ysize,xcount,ycount,fill,flags;U16 show,reserved_count;U8 *reserved_data;HANDLE input,output,error;};
+struct PI {HANDLE process,thread;U32 pid,tid;};
+struct __declspec(align(16)) CTX {U64 home[6];U32 flags,mxcsr;U16 cs,ds,es,fs,gs,ss;U32 eflags;U64 debug[6];U64 rax,rcx,rdx,rbx,rsp,rbp,rsi,rdi,r8,r9,r10,r11,r12,r13,r14,r15,rip;U8 tail[976];};
+_Static_assert(sizeof(struct ER)==152,"EXCEPTION_RECORD");
+_Static_assert(sizeof(struct DE)==176,"DEBUG_EVENT");
+_Static_assert(sizeof(struct SI)==104,"STARTUPINFO");
+_Static_assert(sizeof(struct CTX)==1232,"CONTEXT");

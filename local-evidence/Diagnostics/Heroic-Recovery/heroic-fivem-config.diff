@@ -1,0 +1,22 @@
+--- FiveM sideload before
++++ FiveM sideload after
+@@ -20,7 +20,7 @@
+     "language": "",
+     "beforeLaunchScriptPath": "",
+     "afterLaunchScriptPath": "",
+-    "verboseLogs": false,
++    "verboseLogs": true,
+     "advertiseAvxForRosetta": false,
+     "enableQuickSavesMenu": false,
+     "steamRuntime": false,
+@@ -30,8 +30,9 @@
+       "type": "proton"
+     },
+     "winePrefix": "/home/feras/Games/FiveM-Official-Test/GTA-Prefix-Work",
+-    "wineCrossoverBottle": ""
++    "wineCrossoverBottle": "",
++    "targetExe": "/home/feras/Games/FiveM-Official-Test/Official-Portable/FiveM.exe"
+   },
+   "version": "v0",
+   "explicit": true
+-}+}

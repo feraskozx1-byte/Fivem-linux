@@ -1,0 +1,107 @@
+--- a/code/client/citicore/DllGameComponent.Win32.cpp
++++ b/code/client/citicore/DllGameComponent.Win32.cpp
+@@ -38,7 +38,7 @@
+ 
+ 		// 19H1, Vb and Mn seem to adhere to this memory layout.
+ 		// Not sure about Fe and above, so taking out 20000.
+-		if (osBuildNumber >= 18362 && osBuildNumber < 19628)
++		if (osBuildNumber >= 18362 && osBuildNumber < 19628 && !CfxIsWine())
+ 		{
+ 			auto fltUsed = (char*)GetProcAddress(GetModuleHandle(L"ntdll.dll"), "_fltused");
+ 			m_oldLdrFlags = *(int*)(fltUsed - 16);
+--- a/code/client/citicore/SEHTableHandler.Win32.cpp
++++ b/code/client/citicore/SEHTableHandler.Win32.cpp
+@@ -43,7 +43,10 @@
+ 	while (true)
+ 	{
+ 		// disassemble the next instruction
+-		ud_disassemble(&ud);
++		if (ud_disassemble(&ud) == 0)
++		{
++			break;
++		}
+ 
+ 		// if this is a retn, break from the loop
+ 		if (ud_insn_mnemonic(&ud) == UD_Iint3 || ud_insn_mnemonic(&ud) == UD_Inop)
+@@ -106,7 +109,7 @@
+ 
+ 	DWORD64 addressNum = (DWORD64)exceptionAddress;
+ 
+-	if (addressNum >= g_overrideStart && addressNum <= g_overrideEnd)
++	if (addressNum >= g_overrideStart && addressNum < g_overrideEnd)
+ 	{
+ 		if (addressNum != 0)
+ 		{
+@@ -127,7 +130,7 @@
+ 
+ 	DWORD64 addressNum = (DWORD64)exceptionAddress;
+ 
+-	if (addressNum >= g_overrideStart && addressNum <= g_overrideEnd)
++	if (addressNum >= g_overrideStart && addressNum < g_overrideEnd)
+ 	{
+ 		if (addressNum != 0)
+ 		{
+@@ -145,9 +148,9 @@
+ 
+ static PVOID(*g_origRtlImageDirectoryEntryToData)(HMODULE hModule, BOOL a2, WORD directory, ULONG* a4);
+ 
+-static PVOID RtlImageDirectoryEntryToDataStub(HMODULE hModule, BOOL a2, WORD directory, ULONG* size)
+-{
+-	if ((DWORD64)hModule == g_overrideStart)
++static PVOID RtlImageDirectoryEntryToDataStub(HMODULE hModule, BOOL mappedAsImage, WORD directory, ULONG* size)
++{
++	if ((DWORD64)hModule == g_overrideStart && mappedAsImage)
+ 	{
+ 		if (directory == IMAGE_DIRECTORY_ENTRY_EXCEPTION)
+ 		{
+@@ -156,7 +159,7 @@
+ 		}
+ 	}
+ 
+-	return g_origRtlImageDirectoryEntryToData(hModule, a2, directory, size);
++	return g_origRtlImageDirectoryEntryToData(hModule, mappedAsImage, directory, size);
+ }
+ 
+ extern "C" void DLL_EXPORT CoreRT_SetupSEHHandler(void* moduleBase, void* moduleEnd, PRUNTIME_FUNCTION runtimeFunctions, DWORD entryCount)
+@@ -168,6 +171,32 @@
+ 	g_overriddenTable.ImageBase = g_overrideStart;
+ 	g_overriddenTable.TableAddress = (DWORD64)runtimeFunctions;
+ 	g_overriddenTable.Size = entryCount * sizeof(RUNTIME_FUNCTION);
++
++	if (CfxIsWine())
++	{
++		// Wine may inline RtlLookupFunctionTable into RtlLookupFunctionEntry.
++		// Both use this directory helper to read the mapped image's unwind table.
++		void* lookup = reinterpret_cast<void*>(GetProcAddress(GetModuleHandle(L"ntdll.dll"), "RtlImageDirectoryEntryToData"));
++		if (!lookup)
++		{
++			FatalError("Could not find RtlImageDirectoryEntryToData on Wine.");
++		}
++
++		DisableToolHelpScope scope;
++		auto status = MH_CreateHook(lookup, RtlImageDirectoryEntryToDataStub, (void**)&g_origRtlImageDirectoryEntryToData);
++		if (status != MH_OK)
++		{
++			FatalError("Could not create the Wine function table hook (MinHook status %d).", status);
++		}
++
++		status = MH_EnableHook(lookup);
++		if (status != MH_OK)
++		{
++			FatalError("Could not enable the Wine function table hook (MinHook status %d).", status);
++		}
++
++		return;
++	}
+ 
+ 	if (IsWindows8Point1OrGreater())
+ 	{
+@@ -211,7 +240,7 @@
+ 			if (!internalAddress)
+ 			{
+ 				// and 2k3 to 7 don't even _have_ Rtlpx - so we directly hook the Rtl* function
+-				if (IsWindows8OrGreater() && !CfxIsWine())
++				if (IsWindows8OrGreater())
+ 				{
+ 					FatalError("Could not find RtlpxLookupFunctionTable - hooking RtlLookupFunctionTable directly. This will break on a Win8+ system since RtlpxLookupFunctionTable is supposed to exist!\n");
+ 				}

@@ -1,0 +1,31 @@
+--- index-observer.c.before
++++ index-observer.c
+@@ -70,9 +70,8 @@
+ #ifdef FIXTURE_MODE
+   hex((U32)c.rcx);(void)process;
+ #else
+-  hex((U32)c.r15);put(" hard_limit=");hex(0x2800);put(" below_limit=");hex((U32)c.r15<0x2800);
++  hex(which==2?c.rsi:c.r15);put(" comparison_constant=");hex(c.rax);
+   U64 slots[9]={0};if(remote(process,c.rsp,slots,sizeof(slots))){put(" stack_index=");hex(slots[8]);}
+-  if(which==2){put(" selected_target_rva=");hex(((U32)c.r15<0x2800?c.rsi:c.rdx)-adhesive_base);}
+ #endif
+   put("\r\n");
+  }
+@@ -117,7 +116,7 @@
+  U16 command[]=L"\"Z:\\home\\feras\\Projects\\FiveM-PR4050-Test\\Diagnostics\\2026-11-05-Adhesive-Phase2\\private\\fullhost\\FiveM.exe\"";
+ #endif
+  struct SI startup={0};struct PI pi={0};startup.cb=sizeof(startup);
+- put("LOOP_LIMIT_TRACE_V1; debugger visible; hardware DR0-DR2; RF debug resume only; no memory or API-return writes\r\n");
++ put("RESOLVER_COMPARISON_TRACE_V1; debugger visible; hardware DR0-DR2; RF debug resume only; no memory or API-return writes\r\n");
+  BOOL ok=CreateProcessW(app,command,NULL,NULL,0,2,NULL,NULL,&startup,&pi);field("CreateProcess=",ok);if(!ok){field("error=",GetLastError());ExitProcess(2);}
+  field("child_pid=",pi.pid);field("child_tid=",pi.tid);DebugSetProcessKillOnExit(1);
+  U64 deadline=GetTickCount64()+40000;U32 initial_breakpoint_handled=0;U64 captured_at=0;
+@@ -127,7 +126,7 @@
+   if(ev.code==6){
+    if(ev.u.dll.file){U16 path[1024];U32 n=GetFinalPathNameByHandleW(ev.u.dll.file,path,1024,0);if(n&&n<1024&&suffix(path,n,L"adhesive.dll")){adhesive_base=(SIZE)ev.u.dll.base;field("adhesive_base=",adhesive_base);put("adhesive_path=");wide(path,n);put("\r\n");
+ #ifndef FIXTURE_MODE
+-    if(!arm(ev.tid,adhesive_base+0xd9fdd5,adhesive_base+0xda3795,adhesive_base+0xda5123)){trace_error=1;put("ARM_FAILED\r\n");}
++    if(!arm(ev.tid,adhesive_base+0xd9fdd5,adhesive_base+0xda006c,adhesive_base+0xda4fc2)){trace_error=1;put("ARM_FAILED\r\n");}
+ #endif
+    }if(n&&n<1024&&suffix(path,n,L"ntdll.dll")){ntdll_base=(SIZE)ev.u.dll.base;field("ntdll_base=",ntdll_base);}CloseHandle(ev.u.dll.file);}
+   }else if(ev.code==3){if(ev.u.process.file)CloseHandle(ev.u.process.file);

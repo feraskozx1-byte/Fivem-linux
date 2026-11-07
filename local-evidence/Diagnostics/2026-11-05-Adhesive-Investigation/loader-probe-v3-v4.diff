@@ -1,0 +1,217 @@
+--- 2026-11-05-Compatibility/loader-probe.c
++++ 2026-11-05-Adhesive-Investigation/loader-probe.c
+@@ -25,7 +25,17 @@
+     UPTR parameters[15];
+ };
+ struct ExceptionPointers { struct ExceptionRecord *record; void *context; };
+-struct RuntimeFunction { U32 begin, end, unwind; };
++/* Windows x64 MEMORY_BASIC_INFORMATION: implicit DWORD padding at +20. */
++struct MemoryBasicInformation {
++    void *base_address;
++    void *allocation_base;
++    U32 allocation_protect;
++    UPTR region_size;
++    U32 state;
++    U32 protect;
++    U32 type;
++};
++_Static_assert(sizeof(struct MemoryBasicInformation) == 48, "x64 MBI size");
+ 
+ typedef LONG (*ExceptionHandler)(struct ExceptionPointers *);
+ DLLIMPORT HANDLE GetStdHandle(U32);
+@@ -42,10 +52,7 @@
+ DLLIMPORT void *AddVectoredExceptionHandler(U32, ExceptionHandler);
+ DLLIMPORT BOOL GetModuleHandleExA(U32, const char *, HMODULE *);
+ DLLIMPORT U32 GetModuleFileNameA(HMODULE, char *, U32);
+-
+-typedef void *(*LookupTable)(UPTR, U64 *, U32 *);
+-typedef void *(*DirectoryData)(void *, unsigned char, U16, U32 *);
+-typedef struct RuntimeFunction *(*LookupEntry)(UPTR, U64 *, void *);
++DLLIMPORT UPTR VirtualQuery(const void *, struct MemoryBasicInformation *, UPTR);
+ 
+ static HANDLE output;
+ static HANDLE disk_output;
+@@ -54,7 +61,8 @@
+ static volatile U32 exception_count;
+ static volatile U32 phase;
+ static volatile U32 phase_exceptions[6];
+-static const unsigned short core_path[] = L"Z:\\home\\feras\\Projects\\FiveM-PR4050-Test\\Run-Adhesive-Test\\CoreRT.dll";
++static const unsigned short old_core_path[] = L"Z:\\home\\feras\\Projects\\FiveM-PR4050-Test\\Run-Adhesive-Test\\CoreRT.dll";
++static const unsigned short new_core_path[] = L"Z:\\home\\feras\\Projects\\FiveM-PR4050-Test\\Run-CoreRT-Test\\CoreRT.dll";
+ static const unsigned short adhesive_path[] = L"Z:\\home\\feras\\Projects\\FiveM-PR4050-Test\\Run-Adhesive-Test\\adhesive.dll";
+ 
+ static void put_n(const char *s, U32 n)
+@@ -122,7 +130,22 @@
+     if (p->record->parameter_count >= 2 &&
+         (p->record->code == 0xc0000005u || p->record->code == 0xc0000006u)) {
+         put(" access_kind="); hex(p->record->parameters[0]);
++        struct MemoryBasicInformation mbi;
++        UPTR queried;
+         put(" target="); hex(p->record->parameters[1]);
++        queried = VirtualQuery((void *)p->record->parameters[1], &mbi, sizeof(mbi));
++        put(" VirtualQuery_bytes="); hex(queried);
++        if (queried == sizeof(mbi)) {
++            put(" region_base="); hex((UPTR)mbi.base_address);
++            put(" region_size="); hex(mbi.region_size);
++            put(" allocation_base="); hex((UPTR)mbi.allocation_base);
++            put(" allocation_protect="); hex(mbi.allocation_protect);
++            put(" State="); hex(mbi.state);
++            put(" Protect="); hex(mbi.protect);
++            put(" Type="); hex(mbi.type);
++        } else {
++            put(" VirtualQuery_error="); hex(GetLastError());
++        }
+     }
+     put("\r\n");
+     handling_exception = 0;
+@@ -144,105 +167,53 @@
+     if (*p == '"') { ++p; while (*p && *p != '"') ++p; if (*p) ++p; }
+     else while (*p && *p != ' ' && *p != '\t') ++p;
+     while (*p == ' ' || *p == '\t') ++p;
+-    if (!*p) return 0;
+-    if (argument_is(p, L"--adhesive")) return 1;
+-    if (argument_is(p, L"--adhesive-initialized")) return 2;
++    if (!*p) return -1;
++    if (argument_is(p, L"--old-core")) return 1;
++    if (argument_is(p, L"--new-core")) return 2;
+     return -1;
+ }
+ 
+-static NOINLINE U32 check_abi(void *pc)
+-{
+-    HMODULE self = GetModuleHandleW((LPCWSTR)0);
+-    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+-    LookupTable table_fn = (LookupTable)GetProcAddress(ntdll, "RtlLookupFunctionTable");
+-    DirectoryData directory_fn = (DirectoryData)GetProcAddress(ntdll, "RtlImageDirectoryEntryToData");
+-    LookupEntry entry_fn = (LookupEntry)GetProcAddress(ntdll, "RtlLookupFunctionEntry");
+-    U32 directory_bytes = 0, table_length = 0;
+-    U64 table_base = 0, entry_base = 0;
+-    void *directory_table, *lookup_table;
+-    struct RuntimeFunction *entry;
+-    field("self_base=", (UPTR)self);
+-    field("control_pc=", (UPTR)pc);
+-    field("RtlLookupFunctionTable=", (UPTR)table_fn);
+-    field("RtlImageDirectoryEntryToData=", (UPTR)directory_fn);
+-    field("RtlLookupFunctionEntry=", (UPTR)entry_fn);
+-    if (!table_fn || !directory_fn || !entry_fn) {
+-        put("ABI_RESULT=required_export_missing\r\n"); return 2;
+-    }
+-    phase = 1;
+-    directory_table = directory_fn(self, 1, 3, &directory_bytes);
+-    phase = 2;
+-    lookup_table = table_fn((UPTR)pc, &table_base, &table_length);
+-    phase = 3;
+-    entry = entry_fn((UPTR)pc, &entry_base, (void *)0);
+-    phase = 0;
+-    field("directory_table=", (UPTR)directory_table);
+-    put("directory_bytes="); dec(directory_bytes); put("\r\n");
+-    put("runtime_function_size="); dec(sizeof(struct RuntimeFunction)); put("\r\n");
+-    put("directory_entry_count="); dec(directory_bytes / sizeof(struct RuntimeFunction)); put("\r\n");
+-    field("lookup_table=", (UPTR)lookup_table);
+-    field("lookup_image_base=", (UPTR)table_base);
+-    put("lookup_length="); dec(table_length); put("\r\n");
+-    field("lookup_entry=", (UPTR)entry);
+-    field("entry_image_base=", (UPTR)entry_base);
+-    if (!directory_table || !directory_bytes || !lookup_table || !entry ||
+-        directory_bytes % sizeof(struct RuntimeFunction) ||
+-        directory_table != lookup_table || table_base != (U64)(UPTR)self ||
+-        entry_base != (U64)(UPTR)self) {
+-        put("ABI_RESULT=table_or_entry_mismatch\r\n"); return 3;
+-    }
+-    if ((UPTR)entry < (UPTR)directory_table ||
+-        (UPTR)entry >= (UPTR)directory_table + directory_bytes) {
+-        put("ABI_RESULT=entry_outside_table\r\n"); return 3;
+-    }
+-    if (table_length == directory_bytes / sizeof(struct RuntimeFunction)) {
+-        put("ABI_RESULT=lookup_length_is_entry_count\r\n"); return 0;
+-    }
+-    if (table_length == directory_bytes) {
+-        put("ABI_RESULT=lookup_length_is_byte_size\r\n"); return 0;
+-    }
+-    put("ABI_RESULT=unrecognized_length_semantics\r\n"); return 3;
+-}
+-
+ void mainCRTStartup(void)
+ {
+     int selected;
+-    U32 result, error;
++    U32 error;
+     HMODULE module;
+     output = GetStdHandle(STD_OUTPUT_HANDLE);
+     selected = mode();
+     /* CREATE_NEW preserves any earlier measurement; all disk output stays in C:. */
+-    disk_output = CreateFileW(selected == 2 ? L"C:\\compat-probe-adhesive-initialized.txt" :
+-        selected == 1 ? L"C:\\compat-probe-adhesive.txt" : L"C:\\compat-probe-abi.txt",
++    if (selected < 0) {
++        put("Usage: loader-probe.exe --old-core|--new-core\r\n"); ExitProcess(64);
++    }
++    disk_output = CreateFileW(selected == 2 ? L"C:\\adhesive-probe-v4-new-core.txt" :
++        L"C:\\adhesive-probe-v4-old-core.txt",
+         0x40000000u, 1u, (void *)0, 1u, 0x80u, (HANDLE)0);
+     if (disk_output == (HANDLE)(UPTR)-1) {
+         error = GetLastError(); disk_output = (HANDLE)0;
+         field("CreateFileW_error=", error); ExitProcess(5);
+     }
+-    put("loader-probe v3 x64 no-CRT; VEH logs only, always CONTINUE_SEARCH\r\n");
++    put("loader-probe v4 x64 no-CRT; VEH logs only, always CONTINUE_SEARCH\r\n");
+     if (!AddVectoredExceptionHandler(1, exception_logger)) {
+         field("AddVectoredExceptionHandler_error=", GetLastError()); finish(4);
+     }
+-    if (selected < 0) { put("Usage: loader-probe.exe [--adhesive|--adhesive-initialized]\r\n"); finish(64); }
+-    if (!selected) {
+-        put("MODE=abi; no game DLL loaded\r\n");
+-        result = check_abi((void *)&mainCRTStartup);
+-        put("exception_count="); dec(exception_count); put("\r\n");
+-        finish(result);
+-    }
+-    if (selected == 2) {
+-        put("MODE=adhesive-initialized; preload ordinary CoreRT globals first\r\n");
+-        put("No EarlyMode_Init, component factory or Wine identity hook invoked\r\n");
+-        phase = 5;
+-        module = LoadLibraryExW(core_path, (HANDLE)0, LOAD_WITH_ALTERED_SEARCH_PATH);
+-        error = module ? 0 : GetLastError();
+-        phase = 0;
+-        field("preload_core_module=", (UPTR)module);
+-        put("preload_core_error="); dec(error); put("\r\n");
+-        put("core_exception_count="); dec(phase_exceptions[5]); put("\r\n");
+-        if (!module) { put("CORE_RESULT=failed\r\n"); finish(11); }
+-    } else {
+-        put("MODE=adhesive; fixed official-reference copy, unmodified loader\r\n");
++    put(selected == 2 ? "MODE=new-core\r\n" : "MODE=old-core\r\n");
++    put("No EarlyMode_Init, component factory or Wine identity hook invoked\r\n");
++    phase = 5;
++    module = LoadLibraryExW(selected == 2 ? new_core_path : old_core_path,
++        (HANDLE)0, LOAD_WITH_ALTERED_SEARCH_PATH);
++    error = module ? 0 : GetLastError();
++    phase = 0;
++    field("preload_core_module=", (UPTR)module);
++    put("preload_core_error="); dec(error); put("\r\n");
++    put("core_exception_count="); dec(phase_exceptions[5]); put("\r\n");
++    if (!module) { put("CORE_RESULT=failed\r\n"); finish(11); }
++    {
++        char path[768];
++        U32 n = GetModuleFileNameA(module, path, (U32)sizeof(path));
++        if (n && n < sizeof(path)) {
++            put("resolved_core_path="); put_n(path, n); put("\r\n");
++        } else {
++            field("GetModuleFileNameA_error=", GetLastError()); finish(12);
++        }
+     }
+     put("LoadLibraryExW flags=LOAD_WITH_ALTERED_SEARCH_PATH\r\n");
+     phase = 4;
+@@ -252,7 +223,7 @@
+     field("adhesive_module=", (UPTR)module);
+     put("LoadLibraryExW_error="); dec(error); put("\r\n");
+     put("loader_exception_count="); dec(phase_exceptions[4]); put("\r\n");
+-    put(module ? "LOAD_RESULT=success; not evidence of server authentication\r\n" : "LOAD_RESULT=failed\r\n");
++    put(module ? "LOAD_RESULT=success; library load only\r\n" : "LOAD_RESULT=failed\r\n");
+     /* Do not invoke CreateComponent, connect, unload forcibly or handle exceptions. */
+     finish(module ? 0 : 10);
+ }
+--- 2026-11-05-Compatibility/loader-probe-kernel32.def
++++ 2026-11-05-Adhesive-Investigation/loader-probe-kernel32.def
+@@ -14,3 +14,4 @@
+ CreateFileW
+ FlushFileBuffers
+ CloseHandle
++VirtualQuery

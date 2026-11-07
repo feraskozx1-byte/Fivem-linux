@@ -1,0 +1,34 @@
+diff --git a/code/client/citicore/EarlyMode.Win32.cpp b/code/client/citicore/EarlyMode.Win32.cpp
+index 34a8000..b915cb9 100644
+--- a/code/client/citicore/EarlyMode.Win32.cpp
++++ b/code/client/citicore/EarlyMode.Win32.cpp
+@@ -8,16 +8,8 @@
+ 
+ #include <Error.h>
+ 
+-// Declared in WineCompat.Win32.cpp
+-void WineCompat_InstallHooks();
+-
+ extern "C" DLL_EXPORT void EarlyMode_Init()
+ {
+-	// Install GetProcAddress hook to hide wine_get_version from legitimacy.dll
+-	// and adhesive.dll before either DLL is loaded.  Must come first so their
+-	// DllMain and static initialisers see a clean environment.
+-	WineCompat_InstallHooks();
+-
+ 	ComponentLoader* loader = ComponentLoader::GetInstance();
+ 
+ 	putenv("CitizenFX_ToolMode=1");
+diff --git a/code/client/shared/XBRInit.cpp b/code/client/shared/XBRInit.cpp
+index 9fd699a..ac2e561 100644
+--- a/code/client/shared/XBRInit.cpp
++++ b/code/client/shared/XBRInit.cpp
+@@ -83,7 +83,7 @@ int GetDefaultBuildInit()
+ 	{
+ 		// New ini key: explicit default build persisted from sv_defaultGameBuild or legacy effectiveDefaultBuild
+ 		int defaultBuild = GetPrivateProfileInt(L"Game", L"DefaultBuild", 0, fpath.c_str());
+-		if (defaultBuild > 0)
++		if (defaultBuild > 0 && IsSupportedGameBuild(defaultBuild))
+ 		{
+ 			return defaultBuild;
+ 		}

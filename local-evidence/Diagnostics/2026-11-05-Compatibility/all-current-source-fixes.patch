@@ -1,0 +1,143 @@
+diff --git a/code/client/citicore/DllGameComponent.Win32.cpp b/code/client/citicore/DllGameComponent.Win32.cpp
+index cd45953..eab9501 100644
+--- a/code/client/citicore/DllGameComponent.Win32.cpp
++++ b/code/client/citicore/DllGameComponent.Win32.cpp
+@@ -38,7 +38,7 @@ struct HardErrorScope
+ 
+ 		// 19H1, Vb and Mn seem to adhere to this memory layout.
+ 		// Not sure about Fe and above, so taking out 20000.
+-		if (osBuildNumber >= 18362 && osBuildNumber < 19628)
++		if (osBuildNumber >= 18362 && osBuildNumber < 19628 && !CfxIsWine())
+ 		{
+ 			auto fltUsed = (char*)GetProcAddress(GetModuleHandle(L"ntdll.dll"), "_fltused");
+ 			m_oldLdrFlags = *(int*)(fltUsed - 16);
+diff --git a/code/client/citicore/EarlyMode.Win32.cpp b/code/client/citicore/EarlyMode.Win32.cpp
+index 34a8000..b915cb9 100644
+--- a/code/client/citicore/EarlyMode.Win32.cpp
++++ b/code/client/citicore/EarlyMode.Win32.cpp
+@@ -8,16 +8,8 @@
+ 
+ #include <Error.h>
+ 
+-// Declared in WineCompat.Win32.cpp
+-void WineCompat_InstallHooks();
+-
+ extern "C" DLL_EXPORT void EarlyMode_Init()
+ {
+-	// Install GetProcAddress hook to hide wine_get_version from legitimacy.dll
+-	// and adhesive.dll before either DLL is loaded.  Must come first so their
+-	// DllMain and static initialisers see a clean environment.
+-	WineCompat_InstallHooks();
+-
+ 	ComponentLoader* loader = ComponentLoader::GetInstance();
+ 
+ 	putenv("CitizenFX_ToolMode=1");
+diff --git a/code/client/citicore/SEHTableHandler.Win32.cpp b/code/client/citicore/SEHTableHandler.Win32.cpp
+index ac825a9..d57ec59 100644
+--- a/code/client/citicore/SEHTableHandler.Win32.cpp
++++ b/code/client/citicore/SEHTableHandler.Win32.cpp
+@@ -13,6 +13,7 @@
+ #include <Error.h>
+ 
+ #include <udis86.h>
++#include <LaunchMode.h>
+ 
+ static void* FindCallFromAddress(void* methodPtr, ud_mnemonic_code mnemonic = UD_Icall, bool breakOnFirst = false)
+ {
+@@ -42,7 +43,10 @@ static void* FindCallFromAddress(void* methodPtr, ud_mnemonic_code mnemonic = UD
+ 	while (true)
+ 	{
+ 		// disassemble the next instruction
+-		ud_disassemble(&ud);
++		if (ud_disassemble(&ud) == 0)
++		{
++			break;
++		}
+ 
+ 		// if this is a retn, break from the loop
+ 		if (ud_insn_mnemonic(&ud) == UD_Iint3 || ud_insn_mnemonic(&ud) == UD_Inop)
+@@ -105,7 +109,7 @@ static void* RtlpxLookupFunctionTableOverride(void* exceptionAddress, FUNCTION_T
+ 
+ 	DWORD64 addressNum = (DWORD64)exceptionAddress;
+ 
+-	if (addressNum >= g_overrideStart && addressNum <= g_overrideEnd)
++	if (addressNum >= g_overrideStart && addressNum < g_overrideEnd)
+ 	{
+ 		if (addressNum != 0)
+ 		{
+@@ -126,7 +130,7 @@ static void* RtlpxLookupFunctionTableOverrideDownLevel(void* exceptionAddress, P
+ 
+ 	DWORD64 addressNum = (DWORD64)exceptionAddress;
+ 
+-	if (addressNum >= g_overrideStart && addressNum <= g_overrideEnd)
++	if (addressNum >= g_overrideStart && addressNum < g_overrideEnd)
+ 	{
+ 		if (addressNum != 0)
+ 		{
+@@ -144,9 +148,9 @@ static void* RtlpxLookupFunctionTableOverrideDownLevel(void* exceptionAddress, P
+ 
+ static PVOID(*g_origRtlImageDirectoryEntryToData)(HMODULE hModule, BOOL a2, WORD directory, ULONG* a4);
+ 
+-static PVOID RtlImageDirectoryEntryToDataStub(HMODULE hModule, BOOL a2, WORD directory, ULONG* size)
++static PVOID RtlImageDirectoryEntryToDataStub(HMODULE hModule, BOOL mappedAsImage, WORD directory, ULONG* size)
+ {
+-	if ((DWORD64)hModule == g_overrideStart)
++	if ((DWORD64)hModule == g_overrideStart && mappedAsImage)
+ 	{
+ 		if (directory == IMAGE_DIRECTORY_ENTRY_EXCEPTION)
+ 		{
+@@ -155,7 +159,7 @@ static PVOID RtlImageDirectoryEntryToDataStub(HMODULE hModule, BOOL a2, WORD dir
+ 		}
+ 	}
+ 
+-	return g_origRtlImageDirectoryEntryToData(hModule, a2, directory, size);
++	return g_origRtlImageDirectoryEntryToData(hModule, mappedAsImage, directory, size);
+ }
+ 
+ extern "C" void DLL_EXPORT CoreRT_SetupSEHHandler(void* moduleBase, void* moduleEnd, PRUNTIME_FUNCTION runtimeFunctions, DWORD entryCount)
+@@ -168,6 +172,32 @@ extern "C" void DLL_EXPORT CoreRT_SetupSEHHandler(void* moduleBase, void* module
+ 	g_overriddenTable.TableAddress = (DWORD64)runtimeFunctions;
+ 	g_overriddenTable.Size = entryCount * sizeof(RUNTIME_FUNCTION);
+ 
++	if (CfxIsWine())
++	{
++		// Wine may inline RtlLookupFunctionTable into RtlLookupFunctionEntry.
++		// Both use this directory helper to read the mapped image's unwind table.
++		void* lookup = reinterpret_cast<void*>(GetProcAddress(GetModuleHandle(L"ntdll.dll"), "RtlImageDirectoryEntryToData"));
++		if (!lookup)
++		{
++			FatalError("Could not find RtlImageDirectoryEntryToData on Wine.");
++		}
++
++		DisableToolHelpScope scope;
++		auto status = MH_CreateHook(lookup, RtlImageDirectoryEntryToDataStub, (void**)&g_origRtlImageDirectoryEntryToData);
++		if (status != MH_OK)
++		{
++			FatalError("Could not create the Wine function table hook (MinHook status %d).", status);
++		}
++
++		status = MH_EnableHook(lookup);
++		if (status != MH_OK)
++		{
++			FatalError("Could not enable the Wine function table hook (MinHook status %d).", status);
++		}
++
++		return;
++	}
++
+ 	if (IsWindows8Point1OrGreater())
+ 	{
+ 		auto ZwQueryVirtualMemory = (NTSTATUS(NTAPI*)(HANDLE, PVOID, INT, PVOID, SIZE_T, PSIZE_T))GetProcAddress(GetModuleHandle(L"ntdll.dll"), "NtQueryVirtualMemory");
+diff --git a/code/client/shared/XBRInit.cpp b/code/client/shared/XBRInit.cpp
+index 9fd699a..ac2e561 100644
+--- a/code/client/shared/XBRInit.cpp
++++ b/code/client/shared/XBRInit.cpp
+@@ -83,7 +83,7 @@ int GetDefaultBuildInit()
+ 	{
+ 		// New ini key: explicit default build persisted from sv_defaultGameBuild or legacy effectiveDefaultBuild
+ 		int defaultBuild = GetPrivateProfileInt(L"Game", L"DefaultBuild", 0, fpath.c_str());
+-		if (defaultBuild > 0)
++		if (defaultBuild > 0 && IsSupportedGameBuild(defaultBuild))
+ 		{
+ 			return defaultBuild;
+ 		}

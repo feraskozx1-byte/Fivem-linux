@@ -1,0 +1,65 @@
+--- a/ci/citicore/prepare.py
++++ b/ci/citicore/prepare.py
+@@ -60,7 +60,7 @@
+ boost = sorted(set(re.findall(r'\.\./(vendor/boost-submodules/[^/]+)/include', prefix)))
+ assert boost and all(path in available for path in boost)
+ dependencies = ['vendor/minhook', 'vendor/udis86', 'vendor/tbb', 'vendor/fmtlib',
+-                'vendor/utfcpp', 'vendor/jitasm', 'vendor/rapidjson'] + boost
++                'vendor/utfcpp', 'vendor/jitasm', 'vendor/rapidjson', 'vendor/nljson'] + boost
+ manifest = {'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
+             'submodules': dependencies,
+             'projects': ['CitiCore', 'Shared', *vendors],
+--- a/ci/citicore/verify_graph.py
++++ b/ci/citicore/verify_graph.py
+@@ -13,6 +13,12 @@
+ args = p.parse_args()
+ manifest = json.loads(args.manifest.read_text())
+ expected = set(manifest['projects'])
++if not args.allow_uninitialized_deps:
++    source_root = args.manifest.resolve().parent.parent
++    assert 'vendor/nljson' in manifest['submodules'], 'nljson missing from dependency selection'
++    for header in ['json_fwd.hpp', 'json.hpp']:
++        path = source_root / 'vendor/nljson/single_include/nlohmann' / header
++        assert path.is_file(), 'Missing required nljson header: ' + str(path)
+ projects = re.findall(r'Project\("[^"\n]+"\) = "([^"]+)", "([^"]+\.vcxproj)"', args.solution.read_text())
+ assert {name for name, _ in projects} == expected, projects
+ assert len(projects) == len(expected)
+--- a/.github/workflows/citicore-native.yml
++++ b/.github/workflows/citicore-native.yml
+@@ -105,23 +105,30 @@
+       - name: Verify DLL, PDB, dependencies and Windows initialization
+         shell: pwsh
+         run: |
+-          python "$env:GITHUB_WORKSPACE/ci/citicore/validate_artifact.py" --source "$env:SOURCE_ROOT" --dll "$env:SOURCE_ROOT/code/bin-citicore/five/release/CoreRT.dll" --pdb "$env:SOURCE_ROOT/code/bin-citicore/five/release/dbg/CoreRT.pdb" --output "$env:RUNNER_TEMP/citicore-artifact" --load
++          python "$env:GITHUB_WORKSPACE/ci/citicore/validate_artifact.py" --source "$env:SOURCE_ROOT" --dll "$env:SOURCE_ROOT/code/bin-citicore/five/release/CoreRT.dll" --pdb "$env:SOURCE_ROOT/code/bin-citicore/five/release/dbg/CoreRT.pdb" --output "$env:GITHUB_WORKSPACE/citicore-out/artifact" --load
+           if ($LASTEXITCODE) { throw 'PE/PDB or native loader validation failed' }
+-          Copy-Item "$env:SOURCE_ROOT/code/citicore-build-manifest.json" "$env:RUNNER_TEMP/citicore-artifact/build-manifest.json"
++          Copy-Item "$env:SOURCE_ROOT/code/citicore-build-manifest.json" "$env:GITHUB_WORKSPACE/citicore-out/artifact/build-manifest.json"
+       - name: Upload separate validated CoreRT artifact
+         uses: actions/upload-artifact@v4
+         with:
+           name: citicore-x64-${{ github.run_id }}
+-          path: ${{ runner.temp }}/citicore-artifact/
++          path: citicore-out/artifact/
+           if-no-files-found: error
+           retention-days: 7
++      - name: Stage focused build logs inside the workspace
++        if: always()
++        shell: pwsh
++        run: |
++          $destination = "$env:GITHUB_WORKSPACE/citicore-out/logs"
++          New-Item -ItemType Directory -Path $destination -Force | Out-Null
++          foreach ($file in @("$env:RUNNER_TEMP/citicore-msbuild.log", "$env:SOURCE_ROOT/code/citicore-build-manifest.json")) {
++            if (Test-Path $file) { Copy-Item $file $destination }
++          }
+       - name: Preserve focused build logs
+         if: always()
+         uses: actions/upload-artifact@v4
+         with:
+           name: citicore-build-logs-${{ github.run_id }}
+-          path: |
+-            ${{ runner.temp }}/citicore-msbuild.log
+-            C:/b/five/code/citicore-build-manifest.json
++          path: citicore-out/logs/
+           if-no-files-found: ignore
+           retention-days: 7

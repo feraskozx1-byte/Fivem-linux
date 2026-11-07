@@ -1,0 +1,42 @@
+--- a/code/client/citicore/DllGameComponent.Win32.cpp
++++ b/code/client/citicore/DllGameComponent.Win32.cpp
+@@ -29,8 +29,17 @@
+ {
+ 	HardErrorScope()
+ 		: m_target(GetProcAddress(GetModuleHandle(L"ntdll.dll"), "RtlRaiseException")),
+-		  m_target2(GetProcAddress(GetModuleHandle(L"ntdll.dll"), "ZwQueryDebugFilterState"))
+-	{
++		  m_target2(GetProcAddress(GetModuleHandle(L"ntdll.dll"), "ZwQueryDebugFilterState")),
++		  m_wineDiagnosticsBypass(CfxIsWine())
++	{
++		// Keep Wine's loader diagnostics unmodified while loading components.
++		// This scope only captures Windows loader debug messages.
++		if (m_wineDiagnosticsBypass)
++		{
++			trace("CoreRT experiment: native Wine loader diagnostics; no HardErrorScope hooks.\n");
++			return;
++		}
++
+ 		ms_curErrScope = this;
+ 
+ 		// OSBuildNumber
+@@ -58,6 +67,11 @@
+ 
+ 	~HardErrorScope()
+ 	{
++		if (m_wineDiagnosticsBypass)
++		{
++			return;
++		}
++
+ 		DisableToolHelpScope thScope;
+ 
+ 		MH_DisableHook(m_target);
+@@ -81,6 +95,7 @@
+ private:
+ 	void* m_target;
+ 	void* m_target2;
++	bool m_wineDiagnosticsBypass;
+ 	std::optional<int> m_oldLdrFlags;
+ 
+ 	static BOOL NTAPI ZwQueryDebugFilterStateStub(_In_ ULONG ComponentId, _In_ ULONG Level)
