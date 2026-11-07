@@ -21,6 +21,8 @@
 | 11 | [Evidence import](IMPORT.md) | How the reviewed text-only evidence was archived |
 | 12 | [Credits](SOURCE_AND_CREDITS.md) | Upstream authors, references, licenses |
 | 13 | [About suggestions](REPOSITORY_ABOUT.md) | Suggested sidebar description and topics |
+| 14 | [Third-party notices](../THIRD_PARTY_NOTICES.md) | File-level copyright and verified license texts |
+| 15 | [Publication audit](PUBLICATION_AUDIT.md) | Private-to-public licensing, privacy and history risks |
 
 ## Evidence directory
 
