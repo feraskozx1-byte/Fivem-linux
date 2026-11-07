@@ -59,7 +59,7 @@
 
 ## المصادر وحقوق الآخرين
 
-المشروع مستقل وغير تابع لـCfx.re أو Rockstar. الأكواد الخارجية وملفات Wine وFiveM تحت تراخيص أصحابها. اقرأ [المصادر](docs/SOURCE_AND_CREDITS.md) و[الأمان](SECURITY.md).
+المشروع مستقل وغير تابع لـCfx.re أو Rockstar. الأكواد الخارجية وملفات Wine وFiveM تحت تراخيص أصحابها. اقرأ [المصادر](docs/SOURCE_AND_CREDITS.md)، و[حقوق وتراخيص الأطراف الأخرى](THIRD_PARTY_NOTICES.md)، و[تقييم النشر للعامة](docs/PUBLICATION_AUDIT.md)، و[الأمان](SECURITY.md).
 
 ---
 
