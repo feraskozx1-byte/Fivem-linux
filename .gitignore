@@ -1,0 +1,45 @@
+# Large or proprietary game/runtime binaries
+*.dll
+*.exe
+*.pdb
+*.dmp
+*.pak
+*.vmdk
+*.qcow2
+*.so
+*.a
+*.o
+*.obj
+*.zip
+*.7z
+*.tar
+*.gz
+*.bin
+*.elf
+*.log
+
+# Sensitive paths / credentials
+**/private/
+**/prefix/
+**/Prefixes/
+**/drive_c/
+**/AppData/
+**/.env
+**/.env.*
+**/secrets/
+**/*token*
+**/*ticket*
+**/*.key
+**/*.pem
+**/*.p12
+
+# Original runtime trees and game data
+Compiled-Release/
+Run-Test/
+Run-CoreRT-Test/
+Run-Adhesive-Test/
+Official-Reference/
+Wine-Test-Prefix/
+local-evidence/**/private/
+__pycache__/
+*.pyc
